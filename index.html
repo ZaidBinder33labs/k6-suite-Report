@@ -1,14 +1,276 @@
 <!doctype html>
-<html>
-<head><meta charset="utf-8"><title>k6 10rps performance suite</title></head>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Public API — rate limit suite, 11 Sep 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EEF1F0;
+    --card:#FFFFFF;
+    --ink:#13211E;
+    --muted:#65736F;
+    --rule:#D6DCD9;
+    --bar:#1F5F51;
+    --limit:#B4601F;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:16px;line-height:1.5;font-variant-numeric:tabular-nums;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:56px 24px 110px}
+  a{color:inherit}
+  :focus-visible{outline:2px solid var(--bar);outline-offset:3px;border-radius:3px}
+
+  /* ---------- header ---------- */
+  .head{border-bottom:2px solid var(--ink);padding-bottom:24px}
+  h1{margin:0;font-size:clamp(30px,6vw,44px);font-weight:600;letter-spacing:-0.025em;line-height:1.08}
+  .lede{margin:14px 0 0;color:var(--muted);font-size:15.5px;max-width:64ch}
+  .totals{display:flex;flex-wrap:wrap;gap:28px;margin:22px 0 0}
+  .totals div{font-size:13.5px;color:var(--muted)}
+  .totals span{display:block;font-size:22px;font-weight:600;color:var(--ink);letter-spacing:-0.02em}
+
+  h2{margin:56px 0 6px;font-size:14px;font-weight:600}
+  .hint{margin:0 0 20px;color:var(--muted);font-size:14px;max-width:62ch}
+
+  /* ---------- shared button ---------- */
+  .cta{
+    display:inline-block;font-size:13.5px;font-weight:500;color:var(--bar);
+    border:1px solid var(--bar);border-radius:3px;padding:5px 13px;
+    text-decoration:none;white-space:nowrap;background:transparent;
+  }
+
+  /* ---------- ceiling chart ---------- */
+  .chart{position:relative;background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:18px 20px 14px}
+  .ceiling{
+    position:absolute;top:16px;bottom:44px;left:calc(20px + (100% - 208px) * 0.769 + 104px);
+    width:0;border-left:2px dashed var(--limit);pointer-events:none;
+  }
+  .ceiling em{position:absolute;top:-4px;left:8px;font-style:normal;font-size:12.5px;color:var(--limit);font-weight:500;white-space:nowrap}
+  a.track{
+    display:grid;grid-template-columns:92px 1fr 72px;gap:12px;align-items:center;
+    padding:9px 8px;margin:0 -8px;border-radius:3px;text-decoration:none;color:inherit;position:relative;
+  }
+  a.track:hover{background:#F0F4F2}
+  a.track:hover .who{color:var(--bar);text-decoration:underline}
+  .who{font-size:14px;font-weight:500}
+  .rail{height:14px;background:#E6EBE9;border-radius:2px;overflow:hidden}
+  .fill{display:block;height:100%;background:var(--bar);border-radius:2px}
+  .over{background:linear-gradient(to right,var(--bar) 0 81.7%,var(--limit) 81.7% 100%)}
+  .val{font-size:13.5px;color:var(--muted);text-align:right}
+  .scale{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);border-top:1px solid var(--rule);padding-top:8px;margin-top:14px}
+
+  /* ---------- run list ---------- */
+  ul{list-style:none;margin:0;padding:0}
+  li{border-bottom:1px solid var(--rule)}
+  li:first-child{border-top:1px solid var(--rule)}
+  a.run{
+    display:grid;grid-template-columns:88px 1fr 148px 124px;gap:18px;align-items:center;
+    padding:20px 10px 20px 6px;text-decoration:none;color:inherit;border-radius:3px;
+  }
+  a.run:hover{background:var(--card)}
+  a.run:hover .name{text-decoration:underline;color:var(--bar)}
+  a.run:hover .cta{background:var(--bar);color:#fff}
+  .profile{width:88px;height:36px;display:block}
+  .profile path{fill:none;stroke:var(--bar);stroke-width:1.75;stroke-linejoin:round;stroke-linecap:round}
+  .profile .axis{stroke:var(--rule);stroke-width:1}
+  .flagged .profile path:not(.axis){stroke:var(--limit)}
+  .name{font-weight:500;font-size:17px;letter-spacing:-0.012em}
+  .desc{display:block;color:var(--muted);font-size:13.5px;margin-top:2px}
+  .flag{display:inline-block;margin-top:7px;font-size:12.5px;color:var(--limit);border:1px solid #E3CBB4;background:#FBF3EB;border-radius:3px;padding:1px 7px}
+  .stat{font-size:13.5px;color:var(--muted)}
+  .stat b{display:block;font-size:16px;font-weight:500;color:var(--ink)}
+  .go{text-align:right}
+
+  /* ---------- table ---------- */
+  .scroller{overflow-x:auto;border:1px solid var(--rule);border-radius:4px;background:var(--card)}
+  table{border-collapse:collapse;width:100%;min-width:720px;font-size:14px}
+  th,td{text-align:right;padding:12px 16px;border-bottom:1px solid var(--rule);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left;font-weight:500}
+  thead th{font-weight:500;color:var(--muted);font-size:13px;border-bottom:1px solid var(--ink)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#F5F8F6}
+  td a{font-weight:500;text-decoration:none;border-bottom:1px solid var(--rule)}
+  td a:hover{color:var(--bar);border-bottom-color:var(--bar)}
+  td.warn{color:var(--limit);font-weight:500}
+
+  /* ---------- findings ---------- */
+  .finding{border-top:1px solid var(--rule);padding:20px 0;display:grid;grid-template-columns:158px 1fr;gap:24px}
+  .finding h3{margin:0;font-size:15px;font-weight:600;letter-spacing:-0.01em}
+  .finding p{margin:0 0 12px;color:var(--muted);font-size:14.5px;max-width:60ch}
+  .finding code{background:#E3E8E6;padding:1px 5px;border-radius:3px;font-size:13px}
+  footer{margin-top:48px;color:var(--muted);font-size:13px}
+
+  @media (max-width:700px){
+    .wrap{padding:36px 18px 72px}
+    .ceiling{display:none}
+    a.track{grid-template-columns:84px 1fr;gap:10px}
+    .val{grid-column:2;text-align:left;margin-top:-4px}
+    a.run{grid-template-columns:58px 1fr;row-gap:12px;padding:18px 0}
+    .profile{width:58px;height:26px}
+    .stat,.go{grid-column:2;text-align:left}
+    .stat b{display:inline;margin-right:6px}
+    .finding{grid-template-columns:1fr;gap:8px}
+  }
+</style>
+</head>
 <body>
-<h1>k6 10rps Performance Suite</h1>
-<ul>
-  <li><a href="baseline-report-2026-09-11T10-54-51-6XX.html">Baseline</a></li>
-  <li><a href="load-10rps-report-2026-09-11T10-59-53-XXX.html">Load – 10 rps</a></li>
-  <li><a href="spike-10rps-report-2026-09-11T11-04-05-XXX.html">Spike – 10 rps</a></li>
-  <li><a href="stress-15rps-report-2026-09-11T11-09-3X-XXX.html">Stress – 15 rps</a></li>
-  <li><a href="soak-10rps-report-2026-09-11T11-24-39-XXX.html">Soak – 10 rps</a></li>
-</ul>
+<div class="wrap">
+
+  <div class="head">
+    <h1>Public API — rate limit suite</h1>
+    <p class="lede">Five k6 runs against an API that caps traffic at 10 requests per second, 11 September 2026. Nearly every response is a 429, which is the point: these runs test whether the limiter holds its shape under different arrival patterns.</p>
+    <div class="totals">
+      <div><span>17,263</span>requests sent</div>
+      <div><span>98.1%</span>rate limited</div>
+      <div><span>0</span>server errors</div>
+      <div><span>2</span>failed checks of 34,526</div>
+    </div>
+  </div>
+
+  <h2>Throughput reached, against the 10 req/s cap</h2>
+  <p class="hint">Only the stress run pushed arrival rate past the ceiling. Baseline sat far below it and still collected 429s. Click any bar to open that report.</p>
+  <div class="chart">
+    <div class="ceiling"><em>API cap — 10 req/s</em></div>
+
+    <a class="track" href="baseline-report-2026-09-11T10-54-51-678Z.html">
+      <span class="who">Baseline</span>
+      <span class="rail"><span class="fill" style="width:4.4%"></span></span>
+      <span class="val">0.57/s</span>
+    </a>
+    <a class="track" href="load-10rps-report-2026-09-11T10-59-53-609Z.html">
+      <span class="who">Load</span>
+      <span class="rail"><span class="fill" style="width:76.9%"></span></span>
+      <span class="val">10.00/s</span>
+    </a>
+    <a class="track" href="spike-10rps-report-2026-09-11T11-04-05-334Z.html">
+      <span class="who">Spike</span>
+      <span class="rail"><span class="fill" style="width:47.1%"></span></span>
+      <span class="val">6.12/s</span>
+    </a>
+    <a class="track" href="stress-15rps-report-2026-09-11T11-09-36-726Z.html">
+      <span class="who">Stress</span>
+      <span class="rail"><span class="fill over" style="width:94.2%"></span></span>
+      <span class="val">12.24/s</span>
+    </a>
+    <a class="track" href="soak-10rps-report-2026-09-11T11-24-39-112Z.html">
+      <span class="who">Soak</span>
+      <span class="rail"><span class="fill" style="width:73.4%"></span></span>
+      <span class="val">9.54/s</span>
+    </a>
+
+    <div class="scale"><span>0</span><span>13 req/s</span></div>
+  </div>
+
+  <h2>Reports</h2>
+  <p class="hint">The line beside each run is its load profile. Anywhere on a row opens the full k6 report.</p>
+  <ul>
+    <li><a class="run flagged" href="baseline-report-2026-09-11T10-54-51-678Z.html">
+      <svg class="profile" viewBox="0 0 88 36" aria-hidden="true"><path class="axis" d="M2 34 L86 34"/><path d="M2 27 L86 27"/></svg>
+      <span>
+        <span class="name">Baseline</span>
+        <span class="desc">One virtual user, deliberately under the cap · 10:54</span>
+        <span class="flag">2 failed checks · 1 threshold breached</span>
+      </span>
+      <span class="stat"><b>104</b>requests · p95 827 ms</span>
+      <span class="go"><span class="cta">Open report</span></span>
+    </a></li>
+
+    <li><a class="run flagged" href="load-10rps-report-2026-09-11T10-59-53-609Z.html">
+      <svg class="profile" viewBox="0 0 88 36" aria-hidden="true"><path class="axis" d="M2 34 L86 34"/><path d="M2 32 L23 10 L65 10 L86 32"/></svg>
+      <span>
+        <span class="name">Load — 10 rps</span>
+        <span class="desc">Held exactly at the cap for five minutes · 10:59</span>
+        <span class="flag">2 thresholds breached</span>
+      </span>
+      <span class="stat"><b>3,001</b>requests · p95 120 ms</span>
+      <span class="go"><span class="cta">Open report</span></span>
+    </a></li>
+
+    <li><a class="run" href="spike-10rps-report-2026-09-11T11-04-05-334Z.html">
+      <svg class="profile" viewBox="0 0 88 36" aria-hidden="true"><path class="axis" d="M2 34 L86 34"/><path d="M2 30 L36 30 L44 4 L52 30 L86 30"/></svg>
+      <span>
+        <span class="name">Spike — 10 rps</span>
+        <span class="desc">Sudden burst to the cap, then recovery · 11:04</span>
+      </span>
+      <span class="stat"><b>1,529</b>requests · p95 189 ms</span>
+      <span class="go"><span class="cta">Open report</span></span>
+    </a></li>
+
+    <li><a class="run" href="stress-15rps-report-2026-09-11T11-09-36-726Z.html">
+      <svg class="profile" viewBox="0 0 88 36" aria-hidden="true"><path class="axis" d="M2 34 L86 34"/><path d="M2 32 L23 32 L23 24 L42 24 L42 14 L61 14 L61 5 L86 5"/></svg>
+      <span>
+        <span class="name">Stress — 10 → 15 → 20 rps</span>
+        <span class="desc">Stepped past the cap in three stages · 11:09</span>
+      </span>
+      <span class="stat"><b>4,040</b>requests · p95 836 ms</span>
+      <span class="go"><span class="cta">Open report</span></span>
+    </a></li>
+
+    <li><a class="run flagged" href="soak-10rps-report-2026-09-11T11-24-39-112Z.html">
+      <svg class="profile" viewBox="0 0 88 36" aria-hidden="true"><path class="axis" d="M2 34 L86 34"/><path d="M2 32 L12 14 L76 14 L86 32"/></svg>
+      <span>
+        <span class="name">Soak — 15 minutes</span>
+        <span class="desc">Endurance hold at the cap · 11:24</span>
+        <span class="flag">1 threshold breached</span>
+      </span>
+      <span class="stat"><b>8,589</b>requests · p95 188 ms</span>
+      <span class="go"><span class="cta">Open report</span></span>
+    </a></li>
+  </ul>
+
+  <h2>All metrics</h2>
+  <p class="hint">Durations in milliseconds. Dropped iterations are k6 falling behind its own schedule, not the server refusing work. Run names link to their reports.</p>
+  <div class="scroller">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Run</th><th scope="col">Requests</th><th scope="col">Rate</th>
+          <th scope="col">Median</th><th scope="col">p95</th><th scope="col">Max</th>
+          <th scope="col">429s</th><th scope="col">Dropped</th><th scope="col">Peak VUs</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><a href="baseline-report-2026-09-11T10-54-51-678Z.html">Baseline</a></td><td>104</td><td>0.57/s</td><td>70</td><td class="warn">827</td><td>1,486</td><td>69</td><td>0</td><td>1</td></tr>
+        <tr><td><a href="load-10rps-report-2026-09-11T10-59-53-609Z.html">Load</a></td><td>3,001</td><td>10.00/s</td><td>50</td><td>120</td><td>835</td><td>2,951</td><td>0</td><td>3</td></tr>
+        <tr><td><a href="spike-10rps-report-2026-09-11T11-04-05-334Z.html">Spike</a></td><td>1,529</td><td>6.12/s</td><td>55</td><td>189</td><td>10,960</td><td>1,487</td><td>0</td><td>12</td></tr>
+        <tr><td><a href="stress-15rps-report-2026-09-11T11-09-36-726Z.html">Stress</a></td><td>4,040</td><td>12.24/s</td><td>53</td><td class="warn">836</td><td>8,068</td><td>3,982</td><td class="warn">9</td><td>35</td></tr>
+        <tr><td><a href="soak-10rps-report-2026-09-11T11-24-39-112Z.html">Soak</a></td><td>8,589</td><td>9.54/s</td><td>54</td><td>188</td><td>5,981</td><td>8,439</td><td class="warn">412</td><td>29</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>What to look at next</h2>
+  <div class="finding">
+    <h3>Baseline is the odd one</h3>
+    <div>
+      <p>At a single VU and 0.57 req/s it still took 69 rate-limited responses out of 104, and its p95 of 827 ms sits twelve times above its own median. Either the cap is shared across clients rather than per-key, or the baseline script is issuing requests faster than its stated rate. Worth confirming before the other runs are read as clean.</p>
+      <a class="cta" href="baseline-report-2026-09-11T10-54-51-678Z.html">Open baseline report</a>
+    </div>
+  </div>
+  <div class="finding">
+    <h3>Dropped iterations</h3>
+    <div>
+      <p>Stress dropped 9 and soak dropped 412 iterations, which means k6 could not start work on schedule with the VUs allocated. Raise <code>preAllocatedVUs</code> and re-run — soak's 9.54/s should land on 10/s once the generator keeps up.</p>
+      <a class="cta" href="soak-10rps-report-2026-09-11T11-24-39-112Z.html">Open soak report</a>
+    </div>
+  </div>
+  <div class="finding">
+    <h3>Tail latency under burst</h3>
+    <div>
+      <p>Spike recorded a 10.9 s maximum against a 55 ms median. One slow response during the ramp is normal for connection setup, but if it repeats across runs it is worth isolating which endpoint produced it.</p>
+      <a class="cta" href="spike-10rps-report-2026-09-11T11-04-05-334Z.html">Open spike report</a>
+    </div>
+  </div>
+
+  <footer>Generated with k6 · reports rendered by k6-reporter</footer>
+</div>
 </body>
 </html>
